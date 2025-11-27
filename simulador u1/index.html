@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PROTOCOL: VECTOR ZERO - Simulador Táctico APH</title>
+    <style>
+        :root {
+            --bg-color: #050505;
+            --terminal-green: #33ff33;
+            --terminal-dim: #1a801a;
+            --alert-red: #ff3333;
+            --warning-yellow: #ffff33;
+            --ui-border: 2px solid var(--terminal-green);
+            --font-main: 'Courier New', Courier, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--terminal-green);
+            font-family: var(--font-main);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-shadow: 0 0 5px rgba(51, 255, 51, 0.4);
+        }
+
+        /* Scanline effect */
+        body::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #game-container {
+            display: grid;
+            grid-template-columns: 250px 1fr;
+            /* CAMBIO AQUI: La fila central (imagen) ahora es 30vh (mucho más pequeña) 
+               y la fila inferior (texto) ocupa el resto (1fr) */
+            grid-template-rows: 60px 30vh 1fr; 
+            width: 95vw;
+            height: 95vh;
+            border: var(--ui-border);
+            background-color: rgba(5, 5, 5, 0.95);
+            box-shadow: 0 0 20px rgba(51, 255, 51, 0.2);
+            gap: 10px;
+            padding: 10px;
+        }
+
+        /* Header */
+        header {
+            grid-column: 1 / -1;
+            border-bottom: 1px solid var(--terminal-dim);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+            font-weight: bold;
+            font-size: 1.2rem;
+            background: rgba(0, 20, 0, 0.5);
+        }
+
+        /* Stats Sidebar */
+        aside {
+            grid-row: 2 / 4;
+            border-right: 1px solid var(--terminal-dim);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .stat-box {
+            margin-bottom: 15px;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            margin-bottom: 5px;
+            color: var(--terminal-dim);
+        }
+
+        .progress-bar {
+            height: 10px;
+            background: #111;
+            border: 1px solid var(--terminal-dim);
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--terminal-green);
+            transition: width 0.3s ease;
+        }
+
+        .fill-health { background: var(--alert-red); }
+        .fill-legal { background: var(--terminal-green); }
+        .fill-rep { background: var(--warning-yellow); }
+
+        /* Main Visual */
+        #visual-display {
+            grid-column: 2;
+            grid-row: 2;
+            position: relative;
+            border: 1px solid var(--terminal-dim);
+            background-color: #000;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #scene-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* Asegura que la imagen cubra el área panorámica sin deformarse */
+            opacity: 0.8;
+            filter: contrast(1.2) sepia(0.3) hue-rotate(90deg) saturate(0.5); /* Cyberpunk filter */
+            transition: opacity 0.5s ease-in-out;
+        }
+
+        .overlay-text {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px 10px;
+            border: 1px solid var(--terminal-green);
+            font-size: 0.7rem;
+        }
+
+        /* Dialogue & Interaction */
+        #interaction-panel {
+            grid-column: 2;
+            grid-row: 3;
+            border-top: 1px solid var(--terminal-dim);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start; /* Alineación superior para llenar el espacio extra */
+            background: rgba(0, 10, 0, 0.8);
+            overflow: hidden;
+        }
+
+        #narrative-text {
+            font-size: 1rem;
+            line-height: 1.5;
+            margin-bottom: 20px;
+            /* Aumentamos el espacio para texto ahora que el panel es más grande */
+            flex-grow: 1; 
+            overflow-y: auto;
+            padding-right: 10px;
+        }
+
+        #options-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            /* Altura mínima para botones más cómodos */
+            min-height: 100px; 
+        }
+
+        button {
+            background: transparent;
+            border: 1px solid var(--terminal-green);
+            color: var(--terminal-green);
+            padding: 15px;
+            font-family: var(--font-main);
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.2s;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+        }
+
+        button:hover {
+            background: var(--terminal-green);
+            color: #000;
+            box-shadow: 0 0 10px var(--terminal-green);
+        }
+
+        button:disabled {
+            border-color: #333;
+            color: #555;
+            cursor: not-allowed;
+        }
+
+        /* Feedback Modal */
+        #feedback-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        #feedback-box {
+            width: 600px;
+            border: 2px solid var(--terminal-green);
+            padding: 30px;
+            background: #000;
+            text-align: center;
+        }
+
+        .highlight {
+            color: var(--warning-yellow);
+            font-weight: bold;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            #game-container {
+                grid-template-columns: 1fr;
+                /* Ajuste móvil: Header, Stats, Imagen (Pequeña), Texto (Grande) */
+                grid-template-rows: 50px 80px 25vh 1fr;
+                width: 100vw;
+                height: 100vh;
+                border: none;
+            }
+            
+            aside {
+                grid-row: 2;
+                flex-direction: row;
+                padding: 10px;
+                border-right: none;
+                border-bottom: 1px solid var(--terminal-dim);
+                overflow-x: auto;
+            }
+
+            .stat-box {
+                flex: 1;
+                margin-bottom: 0;
+                margin-right: 10px;
+                min-width: 120px;
+            }
+
+            #visual-display {
+                grid-column: 1;
+                grid-row: 3;
+            }
+
+            #interaction-panel {
+                grid-column: 1;
+                grid-row: 4;
+            }
+
+            #options-container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <header>
+        <div>SYSTEM: SIVE-ALERTA v2.5</div>
+        <div id="location-indicator">LOC: QUITO CENTRAL</div>
+        <div>OP: T.E.M. UNIT-01</div>
+    </header>
+
+    <aside>
+        <div class="stat-box">
+            <div class="stat-label">INTEGRIDAD BIO (SALUD)</div>
+            <div class="progress-bar"><div id="bar-health" class="progress-fill fill-health" style="width: 100%;"></div></div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">CUMPLIMIENTO LEGAL (COIP)</div>
+            <div class="progress-bar"><div id="bar-legal" class="progress-fill fill-legal" style="width: 100%;"></div></div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">EFICIENCIA/REPUTACIÓN</div>
+            <div class="progress-bar"><div id="bar-rep" class="progress-fill fill-rep" style="width: 100%;"></div></div>
+        </div>
+        <div style="margin-top: auto; font-size: 0.7rem; color: #555;">
+            <p>> CONEXIÓN ECU-911: ESTABLE</p>
+            <p>> FORMULARIO 002: CARGANDO...</p>
+            <p>> PROTOCOLOS: ACTIVOS</p>
+        </div>
+    </aside>
+
+    <div id="visual-display">
+        <img id="scene-image" src="https://placehold.co/800x250/000000/33ff33?text=SISTEMA+INICIALIZANDO..." alt="Scene Visual">
+        <div class="overlay-text">VISTA TÁCTICA</div>
+    </div>
+
+    <div id="interaction-panel">
+        <div id="narrative-text">Inicializando simulación...</div>
+        <div id="options-container">
+            <!-- Buttons injected here -->
+        </div>
+    </div>
+</div>
+
+<div id="feedback-overlay">
+    <div id="feedback-box">
+        <h2 id="feedback-title" style="margin-bottom: 20px; color: var(--terminal-green);">ANÁLISIS DE CONSECUENCIAS</h2>
+        <p id="feedback-message" style="margin-bottom: 20px;">...</p>
+        <button onclick="closeFeedback()">CONTINUAR >></button>
+    </div>
+</div>
+
+<script>
+    // --- ESTADO DEL JUEGO ---
+    let state = {
+        health: 100,
+        legal: 100,
+        rep: 100,
+        currentNode: 'START'
+    };
+
+    // --- BASE DE DATOS DE NODOS (SCRIPT) ---
+    const nodes = {
+        'START': {
+            text: "GUARDIA NOCTURNA. ECU-911 reporta un aumento inusual del 20% en llamadas por dificultad respiratoria en el Sector 4 (Zona Industrial). Tu unidad está en la base.",
+            image: "https://placehold.co/800x250/051105/33ff33?text=CENTRO+DE+MANDO+ECU-911",
+            options: [
+                { text: "A. Esperar despacho específico para conservar recursos.", next: 'NODE_1_FAIL', effect: { rep: -10 } },
+                { text: "B. Realizar 'System Status Management' y mover la unidad a un punto de espera en Sector 4.", next: 'NODE_1_SUCCESS', effect: { rep: +10 } }
+            ]
+        },
+        'NODE_1_FAIL': {
+            text: "Decides esperar. 15 minutos después, recibes una llamada crítica (Código Rojo) desde el Sector 4. El tiempo de respuesta será de 25 minutos debido al tráfico. La 'Hora Dorada' se consume.",
+            image: "https://placehold.co/800x250/220000/ff3333?text=TRAFICO+DENSO+-+RETRASO",
+            feedback: "ERROR TÁCTICO: La Epidemiología del SEM (U1-C1) dicta usar la vigilancia sindrómica para posicionar recursos dinámicamente (SSM) y reducir tiempos de respuesta.",
+            options: [
+                { text: "Continuar a la escena", next: 'NODE_2' }
+            ]
+        },
+        'NODE_1_SUCCESS': {
+            text: "Te posicionas en el 'poste' estratégico. Minutos después, cae la llamada: 'Masculino, 55 años, disnea severa'. Tiempo de llegada estimado: 4 minutos. Has aplicado epidemiología logística correctamente.",
+            image: "https://placehold.co/800x250/002200/33ff33?text=LLEGADA+RAPIDA+A+ESCENA",
+            feedback: "BUENA DECISIÓN: El uso de datos sindrómicos (U1-C1) para predecir la demanda mejora la supervivencia.",
+            options: [
+                { text: "Evaluar la Escena", next: 'NODE_2' }
+            ]
+        },
+        'NODE_2': {
+            text: "Llegas a la escena: Un callejón oscuro cerca de una fábrica. Ves a un hombre en el suelo tosiendo. Hay varias personas alrededor con aspecto agresivo y botellas de alcohol. (U1-C4: Determinantes Sociales).",
+            image: "https://placehold.co/800x250/111111/555555?text=CALLEJON+OSCURO",
+            options: [
+                { text: "A. Bajar inmediatamente con el equipo de trauma. ¡El paciente es prioridad!", next: 'NODE_2_FAIL', effect: { health: -40, legal: -10 } },
+                { text: "B. Realizar 'Scene Size-up'. Evaluar entorno social. Solicitar apoyo policial antes de ingresar.", next: 'NODE_2_SUCCESS', effect: { health: 0, legal: +5 } }
+            ]
+        },
+        'NODE_2_FAIL': {
+            text: "Bajas corriendo. Uno de los espectadores, intoxicado, te empuja creyendo que eres policía. Caes y te cortas la mano con vidrio sucio. La escena es insegura.",
+            image: "https://placehold.co/800x250/330000/ff3333?text=AGRESION+EN+ESCENA",
+            feedback: "FALLO DE PREVENCIÓN PRIMARIA: Según U1-C5 y U1-C4, la seguridad de la escena es la medida de prevención primaria por excelencia. Ignoraste el determinante social de violencia.",
+            options: [
+                { text: "Retirarse y reagrupar", next: 'NODE_3' }
+            ]
+        },
+        'NODE_2_SUCCESS': {
+            text: "Esperas 2 minutos. La policía llega y asegura el perímetro (Zona Segura). Ahora puedes atender sin convertirte en víctima. Prevención Primaria ejecutada.",
+            image: "https://placehold.co/800x250/001133/3388ff?text=ESCENA+ASEGURADA+POR+POLICIA",
+            feedback: "CORRECTO: Identificaste la violencia como un determinante ambiental (U1-C4) y aplicaste seguridad de escena.",
+            options: [
+                { text: "Iniciar contacto con paciente", next: 'NODE_3' }
+            ]
+        },
+        'NODE_3': {
+            text: "Contacto con paciente. El hombre tose violentamente y hay hemoptisis (sangre al toser). Refiere fiebre de 2 semanas. (U1-C2: Cadena Epidemiológica). ¿Qué EPP seleccionas?",
+            image: "https://placehold.co/800x250/222200/ffff33?text=PACIENTE+CON+HEMOPTISIS",
+            options: [
+                { text: "A. Mascarilla Quirúrgica y Guantes (Precaución por Gotitas).", next: 'NODE_3_FAIL', effect: { health: -30, legal: -10 } },
+                { text: "B. Respirador N95, Gafas y Guantes (Precaución Aérea).", next: 'NODE_3_SUCCESS', effect: { health: +5 } }
+            ]
+        },
+        'NODE_3_FAIL': {
+            text: "Le pones una quirúrgica. Durante el traslado, tose aerosoles en la cabina cerrada. Sospecha alta de Tuberculosis (Transmisión Aérea). Tu mascarilla tiene fugas laterales.",
+            image: "https://placehold.co/800x250/331100/ffaa00?text=EXPOSICION+A+AEROSOLES",
+            feedback: "RIESGO BIOLÓGICO: U1-C2 distingue entre Gotitas (>5 micras) y Aérea (<5 micras). La TB y Sarampión requieren N95 porque los aerosoles quedan suspendidos. Has roto la bioseguridad.",
+            options: [
+                { text: "Continuar evaluación", next: 'NODE_4' }
+            ]
+        },
+        'NODE_3_SUCCESS': {
+            text: "Te colocas el N95 y aseguras ventilación en la ambulancia. Has bloqueado la 'Puerta de Entrada' respiratoria (Eslabón 5 de la cadena).",
+            image: "https://placehold.co/800x250/003300/33ff33?text=EPP+CORRECTO+N95",
+            feedback: "EXCELENTE: U1-C2 indica que para agentes de transmisión aérea (TB, Sarampión) se requiere sellado hermético (N95).",
+            options: [
+                { text: "Continuar evaluación", next: 'NODE_4' }
+            ]
+        },
+        'NODE_4': {
+            text: "Evaluación Primaria (U1-C3: Historia Natural). Paciente taquicárdico (110 lpm), pálido, pero PA 110/70 mmHg. Llenado capilar 3 seg. Dice que tuvo Dengue hace 5 días y hoy le bajó la fiebre.",
+            image: "https://placehold.co/800x250/111111/cccccc?text=MONITOR+SIGNOS+VITALES",
+            options: [
+                { text: "A. Está estable (Normotenso). Quedarse en escena para llenar datos.", next: 'NODE_4_FAIL', effect: { health: -50, legal: -20 } },
+                { text: "B. ¡Shock Compensado/Fase Crítica! Cargar y llevar ('Platinum 10'). Iniciar fluidos.", next: 'NODE_4_SUCCESS', effect: { rep: +20, legal: +10 } }
+            ]
+        },
+        'NODE_4_FAIL': {
+            text: "Te demoras. En 10 minutos la presión cae a 80/50. Entró en Shock Descompensado. U1-C3 advierte: la caída de fiebre en Dengue marca el inicio de la 'Fase Crítica' de extravasación.",
+            image: "https://placehold.co/800x250/330000/ff0000?text=COLAPSO+HEMODINAMICO",
+            feedback: "ERROR CLÍNICO: La Historia Natural (U1-C3) enseña que esperar a la hipotensión es llegar tarde. Ignoraste los signos de Shock Compensado y la fase crítica del Dengue.",
+            options: [
+                { text: "Intentar estabilizar y correr", next: 'NODE_5' }
+            ]
+        },
+        'NODE_4_SUCCESS': {
+            text: "Reconoces la 'Fase Crítica' del Dengue (post-defervescencia). Inicias traslado inmediato. Prevención Secundaria: tratamiento oportuno para evitar daño irreversible.",
+            image: "https://placehold.co/800x250/002244/00ccff?text=TRASLADO+DE+EMERGENCIA",
+            feedback: "CORRECTO: Actuaste en el 'Horizonte Clínico' para limitar el daño (Prevención Secundaria - U1-C5).",
+            options: [
+                { text: "Llegada al Hospital", next: 'NODE_5' }
+            ]
+        },
+        'NODE_5': {
+            text: "Hospital saturado. Tienes que entregar al paciente. El médico te pide la Ficha Epidemiológica porque sospecha una enfermedad de notificación obligatoria.",
+            image: "https://placehold.co/800x250/222222/ffffff?text=SALA+DE+EMERGENCIAS",
+            options: [
+                { text: "A. Entregar solo la Hoja 002. Epidemiología es problema del hospital.", next: 'NODE_5_FAIL', effect: { legal: -30, rep: -20 } },
+                { text: "B. Entregar datos para ficha EPI-1: fecha inicio síntomas y dirección exacta.", next: 'NODE_5_SUCCESS', effect: { legal: +20, rep: +20 } }
+            ]
+        },
+        'NODE_5_FAIL': {
+            text: "El epidemiólogo no puede hacer el cerco porque no registraste la dirección exacta del foco infeccioso. Se genera un brote en el barrio. Sanción administrativa.",
+            image: "https://placehold.co/800x250/331100/ff6600?text=BROTE+EPIDEMICO+NO+CONTENIDO",
+            feedback: "FALLO LEGAL: Según U1-C1 y C2, el personal de APH es parte del SIVE-ALERTA. Tu omisión impidió la vigilancia epidemiológica.",
+            options: [
+                { text: "Ver Resultados Finales", next: 'END' }
+            ]
+        },
+        'NODE_5_SUCCESS': {
+            text: "Tus datos permiten al MSP activar un cerco epidemiológico temprano. Has cumplido tu rol como 'sensor' del sistema de salud.",
+            image: "https://placehold.co/800x250/003300/aaffaa?text=MISION+CUMPLIDA",
+            feedback: "EXCELENTE TRABAJO: Integraste la clínica con la salud pública (U1-C1).",
+            options: [
+                { text: "Ver Resultados Finales", next: 'END' }
+            ]
+        },
+        'END': {
+            text: "FIN DE LA SIMULACIÓN.",
+            image: "https://placehold.co/800x250/000000/ffffff?text=REPORTE+FINAL",
+            options: [
+                { text: "Reiniciar Simulador", next: 'START', action: 'reset' }
+            ]
+        },
+        'KIA': {
+            text: "CRITICAL FAILURE. Tu unidad ha quedado fuera de servicio por lesiones graves o negligencia masiva. GAME OVER.",
+            image: "https://placehold.co/800x250/000000/ff0000?text=K.I.A.+-+FIN+DE+SERVICIO",
+            options: [
+                { text: "Reiniciar Sistema", next: 'START', action: 'reset' }
+            ]
+        }
+    };
+
+    // --- LÓGICA DEL MOTOR (ENGINE) ---
+
+    function updateUI() {
+        // Update Stats Bars
+        document.getElementById('bar-health').style.width = state.health + '%';
+        document.getElementById('bar-legal').style.width = state.legal + '%';
+        document.getElementById('bar-rep').style.width = state.rep + '%';
+
+        // Check Death Condition
+        if (state.health <= 0) {
+            loadNode('KIA');
+            return;
+        }
+
+        // Load Node Data
+        const node = nodes[state.currentNode];
+        const narrativeDiv = document.getElementById('narrative-text');
+        const optionsDiv = document.getElementById('options-container');
+        const visualImg = document.getElementById('scene-image');
+
+        // Typewriter effect logic could go here, simply setting text for now
+        narrativeDiv.innerHTML = node.text;
+        visualImg.src = node.image;
+
+        // Render Options
+        optionsDiv.innerHTML = '';
+        if (node.options) {
+            node.options.forEach(opt => {
+                const btn = document.createElement('button');
+                btn.innerText = `> ${opt.text}`;
+                btn.onclick = () => selectOption(opt, node);
+                optionsDiv.appendChild(btn);
+            });
+        }
+    }
+
+    function selectOption(option, currentNode) {
+        // Apply Effects
+        if (option.effect) {
+            if (option.effect.health) state.health = Math.min(100, Math.max(0, state.health + option.effect.health));
+            if (option.effect.legal) state.legal = Math.min(100, Math.max(0, state.legal + option.effect.legal));
+            if (option.effect.rep) state.rep = Math.min(100, Math.max(0, state.rep + option.effect.rep));
+        }
+
+        // Special Actions
+        if (option.action === 'reset') {
+            state.health = 100;
+            state.legal = 100;
+            state.rep = 100;
+        }
+
+        // Check for Feedback
+        const nextNode = nodes[option.next];
+        if (nextNode && nextNode.feedback) {
+            showFeedback(nextNode.feedback, option.next);
+        } else {
+            state.currentNode = option.next;
+            updateUI();
+        }
+    }
+
+    function showFeedback(message, nextNodeId) {
+        document.getElementById('feedback-message').innerText = message;
+        document.getElementById('feedback-overlay').style.visibility = 'visible';
+        document.getElementById('feedback-overlay').style.opacity = '1';
+        
+        // Temporarily store next node on the button
+        const btn = document.querySelector('#feedback-box button');
+        btn.onclick = () => {
+            closeFeedback();
+            state.currentNode = nextNodeId;
+            updateUI();
+        };
+    }
+
+    function closeFeedback() {
+        document.getElementById('feedback-overlay').style.opacity = '0';
+        setTimeout(() => {
+            document.getElementById('feedback-overlay').style.visibility = 'hidden';
+        }, 300);
+    }
+
+    function loadNode(nodeId) {
+        state.currentNode = nodeId;
+        updateUI();
+    }
+
+    // Start Game
+    updateUI();
+
+</script>
+<!-- 
+    SUGERENCIAS DE PROMPTS PARA CANVA (AI IMAGE GENERATOR):
+    
+    1. Escena 1 (ECU 911): "Futuristic command center, many screens displaying maps and data graphs, dark room, green digital glow, cyberpunk style, wide angle."
+    2. Escena 2 (Callejón): "Cyberpunk dark alleyway at night, rain, neon signs reflecting in puddles, ambulance lights in distance, gritty atmosphere, cinematic."
+    3. Escena 3 (Paciente Tosiendo): "First person view of a paramedic looking at a sick patient coughing, medical interface overlay, digital health bars, low light, intense."
+    4. Escena 4 (Ambulancia Interior): "Inside of a futuristic ambulance, medical equipment, monitor showing vital signs, metallic surfaces, sterile but dark lighting."
+    5. Escena 5 (Hospital): "Busy hospital emergency entrance night, rain, bright artificial lights, ambulances parked, chaotic but organized, tactical view."
+-->
+</body>
+</html>
